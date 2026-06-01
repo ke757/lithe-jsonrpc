@@ -1,0 +1,18 @@
+[project]
+name = "lithe-jsonrpc"
+version = "0.1.0"
+description = "A FastAPI-inspired async JSON-RPC 2.0 framework with stdio & WebSocket transports"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.0",
+    "anyio>=4.0",
+    "fast-depends>=3.0",
+    "starlette>=0.40",
+    "uvicorn>=0.30",
+]
+
+[project.optional-dependencies]
+dev = [
+    "websockets>=14.0",
+]
