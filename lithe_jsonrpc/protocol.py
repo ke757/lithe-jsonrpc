@@ -76,11 +76,11 @@ JsonRpcMessage = Union[JsonRpcRequest, JsonRpcResponse, JsonRpcErrorResponse]
 
 # ── Serialization helpers ──────────────────────────────────────────────
 
-def parse_request(raw: str | bytes) -> JsonRpcRequest:
+def parse_request(raw: str | bytes) -> JsonRpcRequest | list[JsonRpcRequest]:
     """Parse a raw JSON-RPC request string into a ``JsonRpcRequest``.
 
-    Returns ``None`` for batch requests — callers should check for arrays
-    themselves if batch support is desired.
+    Returns a ``list[JsonRpcRequest]`` for batch requests — callers should
+    ``isinstance(parsed, list)`` to distinguish single vs batch.
 
     Raises :class:`~lithe_jsonrpc.errors.ParseError` on invalid JSON.
     """
