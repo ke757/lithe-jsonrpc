@@ -4,6 +4,8 @@ Uses ``fast-depends`` for dependency injection, type coercion, and
 Pydantic validation — the same engine that powers FastAPI.
 """
 
+from __future__ import annotations
+
 import inspect
 from typing import Any, Callable, get_type_hints
 
@@ -128,6 +130,16 @@ class MethodRegistry:
         """Return ``{method_name: description}`` for all registered methods."""
         return {name: m.description for name, m in self._methods.items()}
 
+    def include(self, other: MethodRegistry, prefix: str = "") -> None:
+        """Merge methods from another registry, optionally adding a prefix.
+
+        Example::
+
+            registry.include(router._registry, prefix="device.")
+        """
+        for name, method in other._methods.items():
+            self._methods[prefix + name] = method
+
     async def dispatch(
         self,
         method_name: str,
@@ -139,4 +151,47 @@ class MethodRegistry:
         return await method.call(params, context)
 
 
-__all__ = ["RpcMethod", "MethodRegistry"]
+class Router:
+    """A group of JSON-RPC methods that can be mounted as a unit.
+
+    Like FastAPI's ``APIRouter``, this allows splitting method definitions
+    across modules without a shared ``Lithe`` instance.
+
+    Example::
+
+        # devices/routes.py
+        router = Router()
+
+        @router.method()
+        async def connect(addr: str) -> dict:
+            ...
+
+        # server.py
+        from devices.routes import router as device_router
+        server.include_router(device_router, prefix="device.")
+    """
+
+    def __init__(self) -> None:
+        self._registry = MethodRegistry()
+
+    @property
+    def registry(self) -> MethodRegistry:
+        """The internal :class:`MethodRegistry` backing this router."""
+        return self._registry
+
+    def method(self, name: str | None = None) -> Callable[..., Any]:
+        """Decorator: register a JSON-RPC method on this router.
+
+        Args:
+            name: JSON-RPC method name. Defaults to the function name.
+        """
+
+        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+            method_name = name or func.__name__
+            self._registry.register(method_name, func)
+            return func
+
+        return decorator
+
+
+__all__ = ["RpcMethod", "MethodRegistry", "Router"]

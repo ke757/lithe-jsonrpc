@@ -10,19 +10,21 @@ Usage::
     async def add(a: int, b: int) -> int:
         return a + b
 
-    server.run(transport="stdio")
+    server.serve(StdioTransport())
 """
 
 from fast_depends import Depends as Depends
 
 from .context import JsonRpcContext
 from .errors import LitheError
+from .routing import Router
 from .server import Lithe
 
 __version__ = "0.1.0"
 
 __all__ = [
     "Lithe",
+    "Router",
     "Depends",
     "JsonRpcContext",
     "LitheError",

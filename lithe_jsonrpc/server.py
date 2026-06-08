@@ -10,6 +10,7 @@ from typing import Any, Callable
 
 from .context import JsonRpcContext
 from .errors import InternalError, LitheError
+from .transport.base import Transport
 from .lifespan import Lifespan
 from .middleware import MiddlewareStack
 from .protocol import (
@@ -21,7 +22,7 @@ from .protocol import (
     parse_request,
     to_json,
 )
-from .routing import MethodRegistry
+from .routing import MethodRegistry, Router
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ class Lithe:
         async def add(a: int, b: int) -> int:
             return a + b
 
-        server.run(transport="stdio")
+        server.serve(StdioTransport())
     """
 
     def __init__(
@@ -120,6 +121,21 @@ class Lithe:
             return func
 
         return decorator
+
+    def include_router(self, router: Router, prefix: str = "") -> None:
+        """Mount all methods from a :class:`Router` with an optional prefix.
+
+        Example::
+
+            from devices.routes import router as device_router
+            server.include_router(device_router, prefix="device.")
+
+        Args:
+            router: A :class:`Router` instance with registered methods.
+            prefix: Optional string prepended to every method name
+                (e.g. ``"device."`` turns ``connect`` → ``device.connect``).
+        """
+        self._registry.include(router.registry, prefix)
 
     # ── Dispatch ───────────────────────────────────────────────────
 
@@ -213,92 +229,57 @@ class Lithe:
         except Exception:
             logger.exception("Unhandled exception in notification '%s'", request.method)
 
-    # ── Run ────────────────────────────────────────────────────────
+    # ── Serve ──────────────────────────────────────────────────────
 
-    def run(
-        self,
-        transport: str = "stdio",
-        **kwargs: Any,
-    ) -> None:
-        """Start the server with the specified transport.
+    def serve(self, transport: Transport) -> None:
+        """Start the server with the given transport.
+
+        The transport must be fully created and configured by the caller.
+        This method blocks until the transport disconnects or shuts down.
+
+        Example::
+
+            from lithe_jsonrpc import Lithe
+            from myapp.transports import StdioTransport
+
+            server = Lithe(name="MyService")
+            server.serve(StdioTransport())
 
         Args:
-            transport: ``"stdio"`` or ``"websocket"``.
-            **kwargs: Passed to the transport constructor
-                (e.g. ``host``, ``port`` for WebSocket).
+            transport: A :class:`Transport` instance
+                (e.g. ``StdioTransport()``).
         """
         import anyio
 
-        if transport == "stdio":
-            anyio.run(self._run_stdio)
-        elif transport == "websocket":
-            import functools
-            anyio.run(functools.partial(self._run_websocket, **kwargs))
-        else:
-            raise ValueError(
-                f"Unknown transport '{transport}'. "
-                f"Use 'stdio' or 'websocket'."
-            )
+        anyio.run(self._serve, transport)
 
-    async def _run_stdio(self) -> None:
-        """Run the server over stdio transport."""
-        from .transport.stdio import StdioTransport
-
+    async def _serve(self, transport: Transport) -> None:
+        """Internal: run lifespan + message loop."""
         lifespan_ctx = self._lifespan.build()
         if lifespan_ctx is not None:
             async with lifespan_ctx:
-                await self._serve_stdio()
+                await self._run_loop(transport)
         else:
-            await self._serve_stdio()
+            await self._run_loop(transport)
 
-    async def _serve_stdio(self) -> None:
-        """Internal: serve JSON-RPC over stdio (after lifespan startup)."""
-        from .transport.stdio import StdioTransport
-
-        async with StdioTransport() as t:
+    async def _run_loop(self, transport: Transport) -> None:
+        """Internal: JSON-RPC message loop on an open transport."""
+        async with transport:
             logger.info(
-                "lithe-jsonrpc '%s' running on stdio",
+                "lithe-jsonrpc '%s' running on %s",
                 self._name,
+                transport.transport_type,
             )
-            ctx = JsonRpcContext(t)
+            ctx = JsonRpcContext(transport)
             handler = self._build_handler(ctx)
             while True:
                 try:
-                    raw = await t.recv()
+                    raw = await transport.recv()
                 except EOFError:
                     break
-                response = await self._process_message(raw, t, handler)
+                response = await self._process_message(raw, transport, handler)
                 if response is not None:
-                    await t.send(response)
-
-    async def _run_websocket(self, **kwargs: Any) -> None:
-        """Run the server over WebSocket transport."""
-        lifespan_ctx = self._lifespan.build()
-        if lifespan_ctx is not None:
-            async with lifespan_ctx:
-                await self._serve_websocket(**kwargs)
-        else:
-            await self._serve_websocket(**kwargs)
-
-    async def _serve_websocket(self, **kwargs: Any) -> None:
-        """Internal: serve JSON-RPC over WebSocket (after lifespan startup)."""
-        import uvicorn
-
-        from .transport.websocket import create_asgi_app
-
-        app = create_asgi_app(self)
-        host = kwargs.get("host", "127.0.0.1")
-        port = kwargs.get("port", 8000)
-
-        config = uvicorn.Config(app, host=host, port=port, **kwargs)
-        ws_server = uvicorn.Server(config)
-        logger.info(
-            "lithe-jsonrpc '%s' running on ws://%s:%d",
-            self._name,
-            host,
-            port,
-        )
-        await ws_server.serve()
+                    await transport.send(response)
 
 
 __all__ = ["Lithe"]

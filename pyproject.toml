@@ -9,11 +9,13 @@ dependencies = [
     "pydantic>=2.0",
     "anyio>=4.0",
     "fast-depends>=3.0",
-    "starlette>=0.40",
-    "uvicorn>=0.30",
 ]
 
 [project.optional-dependencies]
 dev = [
     "websockets>=14.0",
 ]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
