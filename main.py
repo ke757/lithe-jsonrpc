@@ -129,7 +129,7 @@ if __name__ == "__main__":
     import anyio
 
     async def _run() -> None:
-        async with server.lifespans():
-            await server.run_connection(DemoStdioTransport())
+        async with server.framework() as conn:
+            await conn.run_turn(DemoStdioTransport())
 
     anyio.run(_run)

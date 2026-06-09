@@ -294,5 +294,68 @@ class Lithe:
                 if response is not None:
                     await transport.send(response)
 
+    # ── Hook integration ────────────────────────────────────────────────────
 
-__all__ = ["Lithe"]
+    def framework(self) -> Connection:
+        """Create a :class:`Connection` context manager.
+
+        Usage::
+
+            import anyio
+
+            async def _run():
+                async with server.connect() as conn:
+                    await conn.serve(StdioTransport())
+
+            anyio.run(_run)
+
+        :meth:`Connection.serve` accepts a transport argument and can be
+        called multiple times — useful for multi-connection transports
+        (e.g. WebSocket) where a new transport is created per connection.
+        """
+        return Connection(self)
+
+
+
+class Connection:
+    """Async context manager for a JSON-RPC serve session.
+
+    Created by :meth:`Lithe.connect`.  On enter, lifespan startup hooks
+    run.  Call :meth:`serve` with a transport to start a message loop.
+    On exit, shutdown hooks run.
+
+    Single-connection (stdio)::
+
+        async with server.connect() as conn:
+            await conn.serve(StdioTransport())
+
+    Multi-connection (WebSocket)::
+
+        async with server.connect() as conn:
+            # per connection:
+            await conn.serve(WebSocketTransport(websocket))
+    """
+
+    __slots__ = ("_server", "_lifespan")
+
+    def __init__(self, server: Lithe) -> None:
+        self._server = server
+
+    async def __aenter__(self) -> Connection:
+        self._lifespan = self._server.lifespans()
+        await self._lifespan.__aenter__()
+        return self
+
+    async def __aexit__(self, *args: Any) -> None:
+        await self._lifespan.__aexit__(*args)
+
+    async def run_turn(self, transport: Transport) -> None:
+        """Run the JSON-RPC message loop on *transport* (block until EOF).
+
+        May be called multiple times with different transports — each
+        call handles one connection.
+        """
+        await self._server.run_connection(transport)
+
+
+__all__ = ["Connection", "Lithe"]
