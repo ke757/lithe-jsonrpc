@@ -6,7 +6,8 @@ FastAPI-inspired ergonomics for JSON-RPC 2.0 services.
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from contextlib import asynccontextmanager
+from typing import Any, AsyncIterator, Callable
 
 from .context import JsonRpcContext
 from .errors import InternalError, LitheError
@@ -229,41 +230,53 @@ class Lithe:
         except Exception:
             logger.exception("Unhandled exception in notification '%s'", request.method)
 
-    # ── Serve ──────────────────────────────────────────────────────
+    # ── Connection loop ────────────────────────────────────────────
+    #
+    # The framework exposes exactly two hooks for building async serve
+    # loops.  Users combine them with ``anyio.run`` to create whatever
+    # transport pattern they need (single-connection, multi-connection,
+    # HTTP-based, etc.).
 
-    def serve(self, transport: Transport) -> None:
-        """Start the server with the given transport.
+    @asynccontextmanager
+    async def lifespans(self) -> AsyncIterator[None]:
+        """Async context manager that runs startup/shutdown hooks.
 
-        The transport must be fully created and configured by the caller.
-        This method blocks until the transport disconnects or shuts down.
+        Usage::
 
-        Example::
+            async with server.lifespans():
+                # startup has completed
+                await run_my_server()
+            # shutdown hooks have run
 
-            from lithe_jsonrpc import Lithe
-            from myapp.transports import StdioTransport
-
-            server = Lithe(name="MyService")
-            server.serve(StdioTransport())
-
-        Args:
-            transport: A :class:`Transport` instance
-                (e.g. ``StdioTransport()``).
+        Hook 1 of 2.  Combine with :meth:`run_connection` to build
+        custom serve loops for multi-connection transports.
         """
-        import anyio
-
-        anyio.run(self._serve, transport)
-
-    async def _serve(self, transport: Transport) -> None:
-        """Internal: run lifespan + message loop."""
-        lifespan_ctx = self._lifespan.build()
-        if lifespan_ctx is not None:
-            async with lifespan_ctx:
-                await self._run_loop(transport)
+        ctx = self._lifespan.build()
+        if ctx is not None:
+            async with ctx:
+                yield
         else:
-            await self._run_loop(transport)
+            yield
 
-    async def _run_loop(self, transport: Transport) -> None:
-        """Internal: JSON-RPC message loop on an open transport."""
+    async def run_connection(self, transport: Transport) -> None:
+        """Run the JSON-RPC message loop on a single open transport.
+
+        Blocks until the transport signals EOF.  Usage::
+
+            # Per-connection (WebSocket):
+            async def ws_endpoint(websocket):
+                transport = WebSocketTransport(websocket)
+                await server.run_connection(transport)
+
+            # Single-connection (stdio), combined with lifespans():
+            async def _run():
+                async with server.lifespans():
+                    await server.run_connection(StdioTransport())
+            anyio.run(_run)
+
+        Hook 2 of 2.  Combine with :meth:`lifespans` to build custom
+        serve loops for any transport model.
+        """
         async with transport:
             logger.info(
                 "lithe-jsonrpc '%s' running on %s",

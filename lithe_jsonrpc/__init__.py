@@ -1,8 +1,9 @@
 """lithe-jsonrpc — A FastAPI-inspired async JSON-RPC 2.0 framework.
 
-Usage::
+Two hooks for building any transport pattern::
 
-    from lithe_jsonrpc import Lithe, Depends
+    from lithe_jsonrpc import Lithe
+    import anyio
 
     server = Lithe(name="MyService")
 
@@ -10,7 +11,11 @@ Usage::
     async def add(a: int, b: int) -> int:
         return a + b
 
-    server.serve(StdioTransport())
+    async def _run():
+        async with server.lifespans():               # hook 1 — startup/shutdown
+            await server.run_connection(MyTransport())  # hook 2 — recv/process/send
+
+    anyio.run(_run)
 """
 
 from fast_depends import Depends as Depends

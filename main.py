@@ -126,4 +126,10 @@ async def list_methods() -> list[str]:
 # ── Entry point ─────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    server.serve(DemoStdioTransport())
+    import anyio
+
+    async def _run() -> None:
+        async with server.lifespans():
+            await server.run_connection(DemoStdioTransport())
+
+    anyio.run(_run)
