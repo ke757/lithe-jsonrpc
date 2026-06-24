@@ -92,10 +92,49 @@ def parse_request(raw: str | bytes) -> JsonRpcRequest | list[JsonRpcRequest]:
         raise ParseError(str(exc)) from exc
 
     if isinstance(data, list):
-        # Batch — caller handles this case
         return _parse_batch(data)
 
     return JsonRpcRequest.model_validate(data)
+
+
+def parse_message(
+    raw: bytes,
+    codec: "Codec",
+) -> JsonRpcRequest | list[JsonRpcRequest]:
+    """使用指定的 codec 解析原始字节为 ``JsonRpcRequest``。
+
+    Returns a ``list[JsonRpcRequest]`` for batch requests — callers should
+    ``isinstance(parsed, list)`` to distinguish single vs batch.
+
+    Raises :class:`~lithe_jsonrpc.errors.ParseError` on decode failure,
+    :class:`~lithe_jsonrpc.errors.InvalidRequestError` on validation failure.
+    """
+    from typing import TYPE_CHECKING
+
+    from pydantic import ValidationError
+
+    from .errors import InvalidRequestError, ParseError
+
+    if TYPE_CHECKING:
+        from .codec import Codec
+
+    try:
+        data = codec.decode(raw)
+    except Exception as exc:
+        raise ParseError(str(exc)) from exc
+
+    if isinstance(data, list):
+        if not data:
+            raise InvalidRequestError("Empty batch is invalid per JSON-RPC 2.0")
+        try:
+            return [JsonRpcRequest.model_validate(item) for item in data]
+        except ValidationError as exc:
+            raise InvalidRequestError(str(exc)) from exc
+
+    try:
+        return JsonRpcRequest.model_validate(data)
+    except ValidationError as exc:
+        raise InvalidRequestError(str(exc)) from exc
 
 
 def _parse_batch(data: list) -> list[JsonRpcRequest]:

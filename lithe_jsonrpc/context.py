@@ -40,7 +40,8 @@ class JsonRpcContext:
             method: The notification method name.
             params: Optional notification parameters.
         """
-        from .protocol import JsonRpcRequest, to_json
+        from .protocol import JsonRpcRequest
 
         notif = JsonRpcRequest(method=method, params=params, id=None)
-        await self._transport.send(to_json(notif).encode())
+        data = notif.model_dump(exclude_none=True)
+        await self._transport.send(self._transport.codec.encode(data))

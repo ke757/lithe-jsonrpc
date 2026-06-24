@@ -1,13 +1,17 @@
 """Transport abstraction layer.
 
-Transports handle the actual I/O (stdio, WebSocket, etc.) and are
-decoupled from the JSON-RPC protocol logic.
+Transports handle the actual I/O (stdio, WebSocket, TCP, etc.) and are
+decoupled from the JSON-RPC protocol logic.  Each transport can specify
+its preferred serialization format via the :attr:`codec` property.
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ..codec import Codec
 
 
 class Transport(ABC):
@@ -16,6 +20,7 @@ class Transport(ABC):
     Each transport manages a single connection to one client:
     - Stdio transport talks to the parent process via stdin/stdout.
     - WebSocket transport manages one WebSocket connection.
+    - TCP transport connects to a remote server.
 
     Transports are async context managers: ``async with transport:``
     for lifecycle management (connect / disconnect).
@@ -35,7 +40,11 @@ class Transport(ABC):
         ...
 
     async def __aenter__(self) -> Transport:
-        await self.connect()
+        try:
+            await self.connect()
+        except BaseException:
+            await self.disconnect()
+            raise
         return self
 
     async def __aexit__(self, *args: Any) -> None:
@@ -48,6 +57,13 @@ class Transport(ABC):
     async def disconnect(self) -> None:
         """Tear down the transport (optional hook)."""
         pass
+
+    @property
+    def codec(self) -> Codec:
+        """Transport 使用的序列化编解码器。"""
+        from ..codec import JsonCodec
+
+        return JsonCodec()
 
     @property
     def transport_type(self) -> str:

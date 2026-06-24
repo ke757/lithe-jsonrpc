@@ -20,6 +20,7 @@ from .protocol import (
     JsonRpcResponse,
     format_error,
     format_response,
+    parse_message,
     parse_request,
     to_json,
 )
@@ -177,12 +178,17 @@ class Lithe:
         transport,
         handler: Callable[[JsonRpcRequest], Any] | None = None,
     ) -> bytes | None:
-        """Process one raw JSON-RPC message. Returns response bytes or None (notification)."""
+        """Process one raw JSON-RPC message. Returns response bytes or None (notification).
+
+        使用 ``transport.codec`` 进行序列化/反序列化。
+        """
+        codec = transport.codec
+
         try:
-            parsed = parse_request(raw)
+            parsed = parse_message(raw, codec)
         except LitheError as exc:
             resp = format_error(exc.code, exc.error_message, None, exc.data)
-            return to_json(resp).encode()
+            return codec.encode(resp.model_dump(exclude_none=True))
 
         if isinstance(parsed, list):
             # Batch request
@@ -198,8 +204,9 @@ class Lithe:
                     else:
                         results.append(await self._handle_request(req, ctx))
             if results:
-                batch_json = "[" + ",".join(to_json(r) for r in results) + "]"
-                return batch_json.encode()
+                return codec.encode(
+                    [r.model_dump(exclude_none=True) for r in results]
+                )
             return None  # All were notifications
 
         # Single request
@@ -212,7 +219,7 @@ class Lithe:
             resp = await handler(parsed)
         else:
             resp = await self._handle_request(parsed, ctx)
-        return to_json(resp).encode()
+        return codec.encode(resp.model_dump(exclude_none=True))
 
     async def _handle_notification(
         self,

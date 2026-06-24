@@ -31,6 +31,7 @@ Two raw hooks are also available for custom loops::
 
 from fast_depends import Depends as Depends
 
+from .codec import Codec, JsonCodec, MsgPackCodec
 from .context import JsonRpcContext
 from .errors import LitheError
 from .routing import Router
@@ -39,6 +40,9 @@ from .server import Connection, Lithe
 __version__ = "0.1.0"
 
 __all__ = [
+    "Codec",
+    "JsonCodec",
+    "MsgPackCodec",
     "Connection",
     "Lithe",
     "Router",
